@@ -85,19 +85,85 @@ function generatePassword(options) {
     return password.join('');
 }
 
-function generatePassphrase() {
-    const words = [];
-    for (let i = 0; i < 3; i++) {
-        words.push(WORDLIST[secureRandom(WORDLIST.length)]);
+function generatePassphrase(options) {
+    let passphrase = '';
+    const explanationParts = [
+        `• Exact Length: The passphrase is built to be exactly ${options.length} characters long, matching your setting.`
+    ];
+
+    // 1. Build a string of words and hyphens until it's long enough
+    while (passphrase.length < options.length) {
+        if (passphrase.length > 0) {
+            passphrase += '-';
+        }
+        const word = WORDLIST[secureRandom(WORDLIST.length)];
+        // Use already capitalized words from the list if uppercase is enabled
+        passphrase += options.includeUppercase ? word : word.toLowerCase();
     }
-    const number = secureRandom(100);
-    const symbol = CHARSETS.symbols[secureRandom(CHARSETS.symbols.length)];
+
+    // 2. Truncate to the exact length
+    passphrase = passphrase.substring(0, options.length);
+
+    // 3. Ensure the last character isn't a separator by replacing it
+    if (passphrase.endsWith('-')) {
+        passphrase = passphrase.slice(0, -1) + CHARSETS.lowercase[secureRandom(CHARSETS.lowercase.length)];
+    }
+
+    let passphraseArray = passphrase.split('');
     
-    return {
-        password: `${words[0]}-${number}-${words[1]}${symbol}${words[2]}`,
-        explanation: `This passphrase is strong because it combines multiple random words, making it very long and hard to guess. The mix of capitalization, numbers, and symbols adds layers of complexity, significantly increasing the time it would take for a computer to crack it compared to a simple password. It's security through memorable length and variety.`
+    // Helper to find a random index of a letter character for replacement
+    const getRandomLetterIndex = () => {
+        const letterIndices = passphraseArray
+            .map((char, index) => ({ char, index }))
+            .filter(item => CHARSETS.lowercase.includes(item.char.toLowerCase()))
+            .map(item => item.index);
+        
+        if (letterIndices.length === 0) return -1;
+        return letterIndices[secureRandom(letterIndices.length)];
     };
+    
+    // 4. Inject a number if required and not already present
+    const hasNumber = () => /[0-9]/.test(passphraseArray.join(''));
+    if (options.includeNumbers && !hasNumber()) {
+        const indexToReplace = getRandomLetterIndex();
+        if (indexToReplace !== -1) {
+            passphraseArray[indexToReplace] = CHARSETS.numbers[secureRandom(CHARSETS.numbers.length)];
+            explanationParts.push(`• Number Included: A number was added to increase character variety, as requested.`);
+        }
+    }
+
+    // 5. Inject a symbol if required and not already present
+    const hasSymbol = () => /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(passphraseArray.join(''));
+    if (options.includeSymbols && !hasSymbol()) {
+        const indexToReplace = getRandomLetterIndex();
+        if (indexToReplace !== -1) {
+            passphraseArray[indexToReplace] = CHARSETS.symbols[secureRandom(CHARSETS.symbols.length)];
+            explanationParts.push(`• Symbol Included: A special symbol was included for a significant security boost.`);
+        }
+    }
+    
+    // 6. Ensure uppercase exists if required, or remove it if not
+    const hasUppercase = () => /[A-Z]/.test(passphraseArray.join(''));
+    if (options.includeUppercase && !hasUppercase()) {
+        const indexToReplace = getRandomLetterIndex();
+        if (indexToReplace !== -1) {
+            passphraseArray[indexToReplace] = passphraseArray[indexToReplace].toUpperCase();
+        }
+        explanationParts.push(`• Uppercase Letters: The use of capitalization adds complexity.`);
+    } else if (!options.includeUppercase) {
+        passphraseArray = passphraseArray.join('').toLowerCase().split('');
+    } else if (hasUppercase()) {
+         explanationParts.push(`• Uppercase Letters: The use of capitalization adds complexity.`);
+    }
+
+    passphrase = passphraseArray.join('');
+    
+    let explanation = `This readable passphrase meets all your security rules:\n\n` + explanationParts.join('\n');
+    explanation += `\n\nThe result is a memorable password that is exactly the length you specified.`;
+
+    return { password: passphrase, explanation };
 }
+
 
 function generateExplanation(options) {
     let explanation = `This password's strength comes from several key factors:\n\n`;
@@ -205,7 +271,7 @@ function handleMakeReadable() {
     setAppBusy(true);
     showError(null);
     try {
-        const result = generatePassphrase();
+        const result = generatePassphrase(state.options);
         state.password = result.password;
         state.explanation = result.explanation;
         renderPassword();
