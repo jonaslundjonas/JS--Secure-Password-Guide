@@ -1,0 +1,5 @@
+{
+  "name": "Secure Password Guide",
+  "description": "An educational web app that generates secure passwords using the Gemini API and explains the principles of password strength to the user in a pedagogic way.",
+  "requestFramePermissions": []
+}
