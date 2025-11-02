@@ -1,11 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
-
 // --- STATE MANAGEMENT ---
 let state = {
     password: '',
     explanation: '',
-    isLoading: false,
-    isMakingReadable: false,
     error: null,
     options: {
         length: 16,
@@ -22,8 +18,6 @@ const dom = {
     copyIcon: document.getElementById('copy-icon'),
     checkIcon: document.getElementById('check-icon'),
     makeReadableBtn: document.getElementById('make-readable-btn'),
-    readableBtnText: document.getElementById('readable-btn-text'),
-    readableSpinner: document.getElementById('readable-spinner'),
     strengthLabel: document.getElementById('strength-label'),
     strengthBar: document.getElementById('strength-bar'),
     lengthSlider: document.getElementById('length-slider'),
@@ -37,63 +31,86 @@ const dom = {
     securityTips: document.getElementById('security-tips'),
 };
 
-// --- GEMINI API SERVICE ---
-if (!process.env.API_KEY) {
-  showError("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const responseSchema = {
-    type: Type.OBJECT,
-    properties: {
-        password: { type: Type.STRING, description: "The generated secure password or passphrase." },
-        explanation: { type: Type.STRING, description: "A pedagogical explanation of why the generated password/passphrase is secure." }
-    },
-    required: ["password", "explanation"]
+// --- LOCAL PASSWORD GENERATION ---
+const CHARSETS = {
+  lowercase: 'abcdefghijklmnopqrstuvwxyz',
+  uppercase: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  numbers: '0123456789',
+  symbols: '!@#$%^&*()_+-=[]{}|;:,.<>?'
 };
 
-async function generateSecurePasswordAndExplanation(options) {
-    const prompt = `
-Generate a secure, random password based on these criteria:
-- Length: ${options.length} characters
-- Include Uppercase Letters (A-Z): ${options.includeUppercase}
-- Include Numbers (0-9): ${options.includeNumbers}
-- Include Special Symbols (!@#$%^&*): ${options.includeSymbols}
-Also, provide a brief, educational explanation for a non-technical user about why a password with these specific characteristics is considered strong.`;
+const WORDLIST = [
+    'River', 'Mountain', 'Sunshine', 'Galaxy', 'Ocean', 'Castle', 'Dragon', 'Melody', 'Wizard', 'Secret', 
+    'Journey', 'Harvest', 'Silver', 'Forest', 'Shadow', 'Phoenix', 'Crystal', 'Magic', 'Dream', 'Star'
+];
+
+function secureRandom(max) {
+    return window.crypto.getRandomValues(new Uint32Array(1))[0] % max;
+}
+
+function generatePassword(options) {
+    let charset = CHARSETS.lowercase;
+    let requiredChars = [];
     
-    return callGemini(prompt, 1.0);
-}
-
-async function makePasswordReadable(currentPassword) {
-    const prompt = `
-Take the following secure but random password: "${currentPassword}"
-Transform it into a more readable and memorable passphrase of similar or greater cryptographic strength.
-After creating the passphrase, provide a brief, educational explanation for why this passphrase is secure, focusing on its length and the concept of entropy in word combinations.`;
-
-    return callGemini(prompt, 0.7);
-}
-
-async function callGemini(prompt, temperature) {
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: responseSchema,
-                temperature: temperature,
-            },
-        });
-        const result = JSON.parse(response.text.trim());
-        if (result && typeof result.password === 'string' && typeof result.explanation === 'string') {
-            return result;
-        } else {
-            throw new Error("Invalid JSON structure received from API.");
-        }
-    } catch (error) {
-        console.error("Error calling Gemini API:", error);
-        throw new Error("Failed to communicate with Gemini API.");
+    if (options.includeUppercase) {
+        charset += CHARSETS.uppercase;
+        requiredChars.push(CHARSETS.uppercase[secureRandom(CHARSETS.uppercase.length)]);
     }
+    if (options.includeNumbers) {
+        charset += CHARSETS.numbers;
+        requiredChars.push(CHARSETS.numbers[secureRandom(CHARSETS.numbers.length)]);
+    }
+    if (options.includeSymbols) {
+        charset += CHARSETS.symbols;
+        requiredChars.push(CHARSETS.symbols[secureRandom(CHARSETS.symbols.length)]);
+    }
+
+    if (requiredChars.length > options.length) {
+        throw new Error("Password length is too short to include all required character types.");
+    }
+
+    let password = requiredChars.slice();
+    const remainingLength = options.length - requiredChars.length;
+    
+    for (let i = 0; i < remainingLength; i++) {
+        password.push(charset[secureRandom(charset.length)]);
+    }
+    
+    // Shuffle the array to ensure randomness
+    for (let i = password.length - 1; i > 0; i--) {
+        const j = secureRandom(i + 1);
+        [password[i], password[j]] = [password[j], password[i]];
+    }
+
+    return password.join('');
+}
+
+function generatePassphrase() {
+    const words = [];
+    for (let i = 0; i < 3; i++) {
+        words.push(WORDLIST[secureRandom(WORDLIST.length)]);
+    }
+    const number = secureRandom(100);
+    const symbol = CHARSETS.symbols[secureRandom(CHARSETS.symbols.length)];
+    
+    return {
+        password: `${words[0]}-${number}-${words[1]}${symbol}${words[2]}`,
+        explanation: `This passphrase is strong because it combines multiple random words, making it very long and hard to guess. The mix of capitalization, numbers, and symbols adds layers of complexity, significantly increasing the time it would take for a computer to crack it compared to a simple password. It's security through memorable length and variety.`
+    };
+}
+
+function generateExplanation(options) {
+    let explanation = `This password's strength comes from several key factors:\n\n`;
+    explanation += `• Length (${options.length} characters): Longer passwords are exponentially harder to crack. Each extra character makes a huge difference.\n`;
+    if (options.includeUppercase && options.includeNumbers && options.includeSymbols) {
+        explanation += `• Character Variety: By using a mix of uppercase letters, numbers, and symbols, the total number of possible characters for each position is much larger, making it resistant to brute-force attacks.\n`;
+    } else {
+        if (options.includeUppercase) explanation += `• Uppercase Letters: Including both lowercase and uppercase letters doubles the possible characters, increasing complexity.\n`;
+        if (options.includeNumbers) explanation += `• Numbers: Adding digits further expands the character set.\n`;
+        if (options.includeSymbols) explanation += `• Symbols: Special characters are a powerful way to make the password much harder to guess.\n`;
+    }
+    explanation += `\nThis combination of length and complexity creates a password that is highly resistant to modern password-cracking tools.`;
+    return explanation;
 }
 
 
@@ -136,18 +153,12 @@ function renderPassword() {
 }
 
 function renderExplanation() {
-    if (state.isLoading || state.isMakingReadable) {
-        dom.explanationBox.innerHTML = `
-            <div class="w-full p-6 bg-zinc-900/50 border border-red-500/20 rounded-lg animate-pulse">
-                <div class="flex items-center mb-4"><div class="w-8 h-8 rounded-full bg-zinc-700 mr-3"></div><div class="w-1/3 h-6 bg-zinc-700 rounded"></div></div>
-                <div class="space-y-3"><div class="h-4 bg-zinc-700 rounded"></div><div class="h-4 bg-zinc-700 rounded w-5/6"></div><div class="h-4 bg-zinc-700 rounded w-3/4"></div></div>
-            </div>`;
-    } else if (state.explanation) {
+     if (state.explanation) {
         dom.explanationBox.innerHTML = `
             <div class="w-full p-6 bg-zinc-900 border border-red-500/20 rounded-lg">
                 <div class="flex items-center mb-3">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-red-400 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <h3 class="text-xl font-bold text-red-300">Why is this a strong password?</h3>
+                    <h3 class="text-xl font-bold text-red-300">Why is this strong?</h3>
                 </div>
                 <p class="text-zinc-300 leading-relaxed whitespace-pre-wrap">${state.explanation}</p>
             </div>`;
@@ -156,23 +167,10 @@ function renderExplanation() {
     }
 }
 
-function setLoadingState(isLoading, isMakingReadable = false) {
-    state.isLoading = isLoading;
-    state.isMakingReadable = isMakingReadable;
-    const anyLoading = isLoading || isMakingReadable;
-
-    dom.generateBtn.disabled = anyLoading;
-    dom.makeReadableBtn.disabled = anyLoading || !state.password;
-    
-    if(isLoading) dom.generateBtn.textContent = 'Generating...';
-    else dom.generateBtn.textContent = 'Generate Secure Password';
-    
-    dom.readableSpinner.style.display = isMakingReadable ? 'flex' : 'none';
-    dom.readableBtnText.style.display = isMakingReadable ? 'none' : 'block';
-
-    renderExplanation();
-
-    dom.securityTips.style.display = state.password && !anyLoading ? 'block' : 'none';
+function setAppBusy(isBusy) {
+    dom.generateBtn.disabled = isBusy;
+    dom.makeReadableBtn.disabled = isBusy || !state.password;
+    dom.securityTips.style.display = state.password && !isBusy ? 'block' : 'none';
 }
 
 function showError(message) {
@@ -183,37 +181,39 @@ function showError(message) {
 
 
 // --- EVENT HANDLERS ---
-async function handleGeneratePassword() {
-    setLoadingState(true);
+function handleGeneratePassword() {
+    setAppBusy(true);
     showError(null);
     try {
-        const result = await generateSecurePasswordAndExplanation(state.options);
-        state.password = result.password;
-        state.explanation = result.explanation;
+        state.password = generatePassword(state.options);
+        state.explanation = generateExplanation(state.options);
         renderPassword();
+        renderExplanation();
     } catch (err) {
         showError(err.message);
         state.password = '';
         state.explanation = '';
         renderPassword();
+        renderExplanation();
     } finally {
-        setLoadingState(false);
+        setAppBusy(false);
     }
 }
 
-async function handleMakeReadable() {
+function handleMakeReadable() {
     if (!state.password) return;
-    setLoadingState(true, true);
+    setAppBusy(true);
     showError(null);
     try {
-        const result = await makePasswordReadable(state.password);
+        const result = generatePassphrase();
         state.password = result.password;
         state.explanation = result.explanation;
         renderPassword();
+        renderExplanation();
     } catch (err) {
         showError('Failed to make password readable. Please try again.');
     } finally {
-        setLoadingState(false);
+        setAppBusy(false);
     }
 }
 
