@@ -1,13 +1,1 @@
-
-export interface PasswordOptions {
-  length: number;
-  includeUppercase: boolean;
-  includeNumbers: boolean;
-  includeSymbols: boolean;
-}
-
-export interface PasswordStrength {
-  label: 'Weak' | 'Medium' | 'Strong' | 'Very Strong';
-  color: string;
-  score: number;
-}
+// This file is no longer used. All logic has been moved to index.tsx for a vanilla JS implementation.
